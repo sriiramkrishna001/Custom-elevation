@@ -412,7 +412,7 @@ export default class Widget extends BaseWidget<AllWidgetProps<IMConfig> & ExtraP
           }
           this.drawingLayer.set('elevationInfo', elevationInfo)
           this.nextPossibleSelectionLayer.set('elevationInfo', elevationInfo)
-          this.state.jimuMapView.view.map.addMany([this.bufferLayer, this.nextPossibleSelectionLayer, this.drawingLayer, this.intersectionHighlightLayer])
+          this.state.jimuMapView.view.map.addMany([this.bufferLayer, this.nextPossibleSelectionLayer, this.drawingLayer, this.intersectionHighlightLayer,this.poleLayer])
           this.createApiWidget(jmv)
           this.createEpViewModel(jmv)
           //check the widget state whether open/close in live view
@@ -1212,8 +1212,29 @@ export default class Widget extends BaseWidget<AllWidgetProps<IMConfig> & ExtraP
         this.createEpViewModel(this.mapView, true)
       }
     }
+    //console.log(this.state.intersectionResult)
+    this.drawPoleline()
   }
+  drawPoleline=()=>{
+    let paths=[];
+    if(this.state.intersectionResult && this.state.intersectionResult.length>0){
+      let layerfeatures=this.state.intersectionResult[0].intersectionResult
+      // for (let i = 0; i < layerfeatures.length; i++) {
+      //  paths.push(layerfeatures[i].intersectingFeature.geometry);
+      // }
+      const points = layerfeatures.map(f => {
+        return [f.intersectingFeature.geometry.x, f.intersectingFeature.geometry.y];
+      });
 
+      // const polylineGraphic = new Graphic({
+      //   geometry: polylineGeometry,
+      //   attributes: feature.attributes,
+      //   symbol: polylineSymbol
+      // })
+
+    }
+ 
+  }
   //for backward comaptibility check for the prev and current config for advance and profile or asset settings
   checkForPrevCurrentAdvanceConfig = (prevConfig, currentConfig, configLayerType: string) => {
     let isLayersSettingsEnabled: boolean = false
@@ -2135,6 +2156,10 @@ export default class Widget extends BaseWidget<AllWidgetProps<IMConfig> & ExtraP
       this.drawingLayer.removeAll()
       this.drawingLayer.destroy()
     }
+    if (this.poleLayer) {
+      this.poleLayer.removeAll()
+      this.poleLayer.destroy()
+    }
     if (this.nextPossibleSelectionLayer) {
       this.nextPossibleSelectionLayer.removeAll()
       this.nextPossibleSelectionLayer.destroy()
@@ -2245,6 +2270,9 @@ export default class Widget extends BaseWidget<AllWidgetProps<IMConfig> & ExtraP
     //remove drawn, chartPosition, selected and nextPossible selection graphics layer
     if (this.drawingLayer) {
       this.drawingLayer.removeAll()
+    }
+    if (this.poleLayer) {
+      this.poleLayer.removeAll()
     }
     if (this.nextPossibleSelectionLayer) {
       this.nextPossibleSelectionLayer.removeAll()
