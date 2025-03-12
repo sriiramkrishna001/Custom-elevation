@@ -1,8 +1,8 @@
 /* eslint-disable no-prototype-builtins */
 /** @jsx jsx */
-import { React,useState, type AllWidgetProps, BaseWidget, jsx, classNames, getAppStore, WidgetState, AppMode, type IMState, type DataRecord, DataSourceManager, DataSourceStatus, type FeatureLayerQueryParams, type QueriableDataSource, type DataSource, geometryUtils, DataSourceSelectionMode, type IMDataSourceInfo, UrlManager, urlUtils, DataSourceComponent } from 'jimu-core'
+import { React, type AllWidgetProps, BaseWidget, jsx, classNames, getAppStore, WidgetState, AppMode, type IMState, type DataRecord, DataSourceManager, DataSourceStatus, type FeatureLayerQueryParams, type QueriableDataSource, type DataSource, geometryUtils, DataSourceSelectionMode, type IMDataSourceInfo, UrlManager, urlUtils, DataSourceComponent } from 'jimu-core'
 import {
-  WidgetPlaceholder, Card, CardBody, Button, Icon,Checkbox,Label,
+  WidgetPlaceholder, Card, CardBody, Button, Icon,
   defaultMessages as jimuUIDefaultMessages,
   Loading,
   LoadingType
@@ -17,7 +17,7 @@ import { getAllLayersFromDataSource, defaultSelectedUnits, getPortalSelfElevatio
 import SketchViewModel from 'esri/widgets/Sketch/SketchViewModel'
 import Graphic from 'esri/Graphic'
 import GraphicsLayer from 'esri/layers/GraphicsLayer'
-import type Point from 'esri/geometry/Point'
+import  Point from 'esri/geometry/Point'
 import Extent from 'esri/geometry/Extent'
 import geometryEngine from 'esri/geometry/geometryEngine'
 import ElevationProfileViewModel from 'esri/widgets/ElevationProfile/ElevationProfileViewModel'
@@ -33,7 +33,7 @@ import { convertSingle } from '../common/unit-conversion'
 import type Geometry from 'esri/geometry/Geometry'
 import promiseUtils from 'esri/core/promiseUtils'
 import { versionManager } from '../version-manager'
-
+import webMercatorUtils from "esri/geometry/support/webMercatorUtils"
 const { epIcon } = getRuntimeIcon()
 
 const defaultPointSymbol = {
@@ -53,7 +53,15 @@ interface ExtraProps {
   selectedFeatureRecords: DataRecord[]
   currentPageId: string
 }
-
+interface GetPolesDataParams {
+  gr: Graphic;
+  glLayer: GraphicsLayer;
+  map: JimuMapView;
+  snapToPole: boolean;
+  tolerance: number;
+  poleLayerUrl: string;
+  spatialReference: SpatialReference;
+}
 interface IState {
   initialStage: boolean
   resultStage: boolean
@@ -88,11 +96,12 @@ interface IState {
   isMapLoaded: boolean
   layersLoaded: boolean
   dsToGetSelectedOnLoad: string
-  polecheckboxChanged:boolean
 }
 
 export default class Widget extends BaseWidget<AllWidgetProps<IMConfig> & ExtraProps, IState> {
   private drawingLayer: GraphicsLayer
+  private drawingLayerforSketch: GraphicsLayer
+  private poleLayer: GraphicsLayer
   private intersectionHighlightLayer: GraphicsLayer
   private nextPossibleSelectionLayer: GraphicsLayer
   private bufferLayer: GraphicsLayer
@@ -109,7 +118,6 @@ export default class Widget extends BaseWidget<AllWidgetProps<IMConfig> & ExtraP
   private bufferGraphics: Graphic
   private resultsAfterIntersectionTimeout = null
   private _abortController: AbortController
-  
 
   static versionManager = versionManager
   static mapExtraStateProps = (state: IMState,
@@ -136,7 +144,6 @@ export default class Widget extends BaseWidget<AllWidgetProps<IMConfig> & ExtraP
     const activeDsConfig = this.props.config.configInfo[this.props.config.activeDataSource]
     this.selectedUnit = defaultSelectedUnits(activeDsConfig, this.props.portalSelf)
     this.bufferGraphics = null
-  
     this.state = {
       initialStage: true,
       resultStage: false,
@@ -172,8 +179,7 @@ export default class Widget extends BaseWidget<AllWidgetProps<IMConfig> & ExtraP
       chartDataUpdateTime: 0,
       isMapLoaded: false,
       layersLoaded: false,
-      dsToGetSelectedOnLoad: '',
-      polecheckboxChanged:true
+      dsToGetSelectedOnLoad: ''
     }
   }
 
@@ -193,7 +199,15 @@ export default class Widget extends BaseWidget<AllWidgetProps<IMConfig> & ExtraP
       listMode: 'hide',
       effect: 'bloom(0.8, 1px, 0)'
     })
-
+    //create new graphicsLayer to draw polelines
+    this.poleLayer = new GraphicsLayer({
+      listMode: 'hide'
+    })
+     //create new graphicsLayer to draw polelines
+     this.drawingLayerforSketch = new GraphicsLayer({
+      listMode: 'hide'
+    })
+    
     //create new graphicsLayer to show next possible selections
     this.nextPossibleSelectionLayer = new GraphicsLayer({
       listMode: 'hide',
@@ -409,9 +423,9 @@ export default class Widget extends BaseWidget<AllWidgetProps<IMConfig> & ExtraP
             mode: this.state.jimuMapView.view.type === '3d' ? 'relative-to-ground' : 'on-the-ground',
             offset: null
           }
-          this.drawingLayer.set('elevationInfo', elevationInfo)
+        //  this.drawingLayer.set('elevationInfo', elevationInfo)
           this.nextPossibleSelectionLayer.set('elevationInfo', elevationInfo)
-          this.state.jimuMapView.view.map.addMany([this.bufferLayer, this.nextPossibleSelectionLayer, this.drawingLayer, this.intersectionHighlightLayer])
+          this.state.jimuMapView.view.map.addMany([this.poleLayer,this.bufferLayer, this.nextPossibleSelectionLayer, this.drawingLayer, this.intersectionHighlightLayer])
           this.createApiWidget(jmv)
           this.createEpViewModel(jmv)
           //check the widget state whether open/close in live view
@@ -584,6 +598,14 @@ export default class Widget extends BaseWidget<AllWidgetProps<IMConfig> & ExtraP
             loadingIndicator: true
           })
           const options = { returnAllFields: true, returnFullGeometry: true }
+          this.poleLayer.graphics.removeAll();
+          // const symbol ={
+          //   type: "simple-line", 
+          //   style: 'dash',
+          //   color: new Color([255, 0, 0]),
+          //   width: 1
+          // };
+          // this.poleLayer.graphics.add(new Graphic({ geometry: event.graphic.geometery, symbol }));
           jmv.selectFeaturesByGraphic(event.graphic, 'intersects', DataSourceSelectionMode.New, options).then((featuresByLayer) => {
             const jimuLayerViews = Object.values(this.state.jimuMapView.jimuLayerViews)
             const featureByLayer = {}
@@ -720,6 +742,8 @@ export default class Widget extends BaseWidget<AllWidgetProps<IMConfig> & ExtraP
 
     reactiveUtils?.watch(() => defaultViewModel.input?.geometry, async () => {
       if (defaultViewModel.input) {
+        // if(this._defaultViewModel.state === 'created')
+        //   this.drawPoleline()
         try {
           // Abort any pending async operation if the input geometry changes again in the meantime.
           this._abortController?.abort()
@@ -1211,8 +1235,105 @@ export default class Widget extends BaseWidget<AllWidgetProps<IMConfig> & ExtraP
         this.createEpViewModel(this.mapView, true)
       }
     }
+    //console.log(this.state.intersectionResult)
+   // this.drawPoleline()
+  // if(this.state.intersectionResult && this.state.intersectionResult.length>0)
+   this.getPolesData();
   }
+  drawPoleline=()=>{
+    let  polylinegeom=webMercatorUtils.webMercatorToGeographic(this._defaultViewModel.input.geometry)
+    let paths=polylinegeom.paths[0];
+    // if(this.state.intersectionResult && this.state.intersectionResult.length>0){
+    //   let layerfeatures=this.state.intersectionResult[0].intersectionResult
+    //   // for (let i = 0; i < layerfeatures.length; i++) {
+    //   //  paths.push(layerfeatures[i].intersectingFeature.geometry);
+    //   // }
+    //   paths = layerfeatures.map(f => {
+    //     return [f.intersectingFeature.geometry.x, f.intersectingFeature.geometry.y];
+    //   });
+    //   const points = this.drawingLayer.graphics.filter(graphic => 
+    //     graphic.geometry.type === "point"
+    //   );
+    //   // const polylineGraphic = new Graphic({
+    //   //   geometry: polylineGeometry,
+    //   //   attributes: feature.attributes,
+    //   //   symbol: polylineSymbol
+    //   // })
+    //   if(paths.length==0) return
+    //   const polyline = {
+    //     type: "polyline",
+    //     paths:paths, // Single line segment
+    //     spatialReference: this.mapView.view.spatialReference
+    //   };
 
+
+    //   // Create a graphic for the polyline
+      // let lineGraphic = new Graphic({
+      //   geometry: this._defaultViewModel.input.geometry,
+      //   symbol: {
+      //     type: "simple-line",
+      //     color: [0, 0, 128], // Red
+      //     width: 50
+      //   }
+      // });
+      //let pointgraphics=[]
+      // paths.forEach(([longitude, latitude]) => {
+      //   let pointGraphic = new Graphic({
+      //     geometry: {
+      //       type: "point",
+      //       longitude,
+      //       latitude
+      //     },
+      //     symbol:{
+      //       type: "simple-marker", // autocasts as new SimpleMarkerSymbol()
+      //       path: "M14.5,29 23.5,0 14.5,9 5.5,0z",
+      //       color: "#ffff00",
+      //       outline: {
+      //         color: [0, 0, 0, 0.7],
+      //         width: 0.5
+      //       },
+      //       angle: 180,
+      //       size: 15
+      //     }
+      //   });
+      //   pointgraphics.push(pointGraphic);
+      // })
+      if (this.poleLayer) 
+        //this.poleLayer.spatialReference=this.mapView.view.spatialReference
+        this.poleLayer.removeAll()
+      paths.forEach((vertex) => {
+          const point = new Point({
+            longitude: vertex[0],
+            latitude: vertex[1]
+           // spatialReference: this._defaultViewModel.input.spatialReference,
+          });
+  
+          const pointGraphic = new Graphic({
+            geometry: point,
+            symbol: {
+              type: "simple-marker",
+              color: "blue",
+              size:30,
+              outline: { color: "black", width: 1 },
+            },
+          });
+  
+          if (this.poleLayer) {
+            //this.poleLayer.spatialReference=this.mapView.view.spatialReference
+            //this.poleLayer.removeAll()
+            this.poleLayer.graphics.add(pointGraphic)
+          }
+       // });
+      });
+     // if (this.poleLayer) {
+        //this.poleLayer.spatialReference=this.mapView.view.spatialReference
+        //this.poleLayer.removeAll()
+       // this.poleLayer.graphics.addMany(pointgraphics)
+     // }
+  
+    // }
+  
+  }
   //for backward comaptibility check for the prev and current config for advance and profile or asset settings
   checkForPrevCurrentAdvanceConfig = (prevConfig, currentConfig, configLayerType: string) => {
     let isLayersSettingsEnabled: boolean = false
@@ -2134,6 +2255,10 @@ export default class Widget extends BaseWidget<AllWidgetProps<IMConfig> & ExtraP
       this.drawingLayer.removeAll()
       this.drawingLayer.destroy()
     }
+    if (this.poleLayer) {
+      this.poleLayer.removeAll()
+      this.poleLayer.destroy()
+    }
     if (this.nextPossibleSelectionLayer) {
       this.nextPossibleSelectionLayer.removeAll()
       this.nextPossibleSelectionLayer.destroy()
@@ -2245,6 +2370,9 @@ export default class Widget extends BaseWidget<AllWidgetProps<IMConfig> & ExtraP
     if (this.drawingLayer) {
       this.drawingLayer.removeAll()
     }
+    if (this.poleLayer) {
+      this.poleLayer.removeAll()
+    }
     if (this.nextPossibleSelectionLayer) {
       this.nextPossibleSelectionLayer.removeAll()
     }
@@ -2346,21 +2474,6 @@ export default class Widget extends BaseWidget<AllWidgetProps<IMConfig> & ExtraP
               </div>
             </CardBody>
           </Card>
-          <div>
-                <Label
-                  centric
-                >
-                  <Checkbox
-                    aria-label="Checkbox"
-                    checked ={this.state.polecheckboxChanged}
-                    className="mr-2"
-                    onChange={() => {  this.setState((prevState) => ({
-                      polecheckboxChanged: !prevState.polecheckboxChanged, // Toggle the boolean value
-                    })); }}
-                  />
-                  Pole Intersect
-                </Label>
-              </div>
           <Card tabIndex={0} aria-label={this.nls('drawProfileDesc')} button data-testid='drawButton'
             className={classNames('front-cards front-section mt-4 mb-4 shadow', this.state.currentDatasource === 'default' || this.state.lineLayersNotFound ? 'h-100 ' : '')}
             onClick={this.onDrawButtonClicked} onKeyDown={(e) => {
@@ -2403,7 +2516,137 @@ export default class Widget extends BaseWidget<AllWidgetProps<IMConfig> & ExtraP
     this.clearGraphics()
     this._displayDefaultCursor()
   }
+   getPolesData = () => {
 
+   // const deferred = new Deferred<{ geometry: Polyline; poledata: [number, number, string][] }>();
+    let polyline: Polyline | null = null;
+   // const geometry = gr.geometry as Polyline;
+    const symbol ={
+      type: "simple-line", 
+      style: 'dash',
+      color: new Color([255, 0, 0]),
+      width: 1
+    };
+    const poleData: [number, number, string][] = [];
+      const polyPaths: [number, number][] = [];
+      if(!this._defaultViewModel)
+        return
+      if(!this._defaultViewModel.input)
+        return
+    let  geometry=this._defaultViewModel.input.geometry
+    
+    if(this.state.intersectionResult && this.state.intersectionResult.length>0){
+      let layerfeatures=this.state.intersectionResult[0].intersectionResult
+      if(layerfeatures.length==0)
+        return;
+      var features=[];
+        for (let i = 0; i < layerfeatures.length; i++) {
+          features.push(layerfeatures[i].intersectingFeature);
+        }
+        for (const path of geometry.paths[0]) {
+          let closestPole = null;
+          let minDist = this.selectedBufferValues.bufferDistance
+          const pt = new Point({ x: path[0], y: path[1] });
+  
+          for (const feature of features) {
+            const poleGeo = feature.geometry as Point;
+            const dist = Math.hypot(pt.x - poleGeo.x, pt.y - poleGeo.y);
+  
+            if (dist < minDist) {
+              minDist = dist;
+              closestPole = feature;
+            }
+          }
+  
+          if (closestPole) {
+            polyPaths.push([closestPole.geometry.x, closestPole.geometry.y]);
+            poleData.push([closestPole.geometry.x, closestPole.geometry.y, closestPole.attributes.FACILITYID]);
+          } else {
+            polyPaths.push([pt.x, pt.y]);
+            poleData.push([pt.x, pt.y, '']);
+          }
+        }
+        polyline = new Polyline({ paths: [polyPaths], spatialReference: this.mapView.view.spatialReference });
+      } else {
+        for (const path of geometry.paths[0]) {
+          poleData.push([path[0], path[1], '']);
+        }
+      }
+    //  let  geometry=webMercatorUtils.webMercatorToGeographic(this._defaultViewModel.input.geometry)
+        //polyline =webMercatorUtils.webMercatorToGeographic(geometry);
+    // // Buffer parameters
+    // const bufferParams = new BufferParameters({
+    //   distances: [tolerance],
+    //   unit: 'feet',
+    //   outSpatialReference: spatialReference,
+    //   geometries: [geometry]
+    // });
+  
+    //try {
+      // const bufferedGeometries = await gsvc.buffer(bufferParams);
+      // const bufferedGeometry = bufferedGeometries[0];
+  
+      // // Draw buffer geometry
+      // glLayer.add(new Graphic({ geometry, symbol }));
+      // glLayer.add(new Graphic({ geometry: bufferedGeometry, symbol }));
+  
+      // Spatial query to fetch poles
+      // const query = new Query({
+      //   geometry: bufferedGeometry,
+      //   returnGeometry: true,
+      //   outSpatialReference: map.spatialReference,
+      //   outFields: ['FACILITYID']
+      // });
+  
+      // const queryTask = new QueryTask({ url: poleLayerUrl });
+      // const results = await queryTask.execute(query);
+     
+      if(polyline){
+        //this.poleLayer.graphics.add(new Graphic({ geometry: polyline, symbol }));
+        //this.state.intersectionResult[0].inputGeometry=polyline;
+        if(!geometryEngine.equals(this._defaultViewModel?.input?.geometry, polyline))
+             this._defaultViewModel?.input?.geometry=polyline
+        else
+        {
+        //  this.poleLayer.graphics.removeAll();
+        //  this.poleLayer.graphics.add(new Graphic({ geometry: polyline, symbol }));
+        }
+      }
+    
+  
+      //this.poleLayer.graphics.add(new Graphic({ geometry: polyline, symbol }));
+      // if(polyline)
+      // {
+      //   this.setState({
+      //     profileResult: this._defaultViewModel.chartData,
+      //     chartDataUpdateTime: Date.now()
+      //   })
+      // }
+      geometryUtils.createBuffer(geometry, [this.selectedBufferValues.bufferDistance], this.selectedBufferValues.bufferUnits).then((bufferGeometry) => {
+        //as we will always deal with only one geometry get first geometry only
+        const firstBufferGeom = Array.isArray(bufferGeometry) ? bufferGeometry[0] : bufferGeometry
+        const bufferGraphics = new Graphic({
+          geometry: firstBufferGeom,
+          symbol: jsonUtils?.fromJSON(this.selectedBufferValues.bufferSymbol)
+        })
+        this.bufferGraphics = bufferGraphics
+        if (bufferGraphics && this.bufferGraphics) {
+          this.bufferLayer?.removeAll()
+          this.bufferLayer?.add(bufferGraphics)
+        }
+        //check for intersecting assets once buffer is drawn
+        //when creating buffer after selection or drawing, we are setting the intersectionResult in state along with chart data,
+        //and when updating buffer while changing value, unit, intersection layers the state needs to be updated after the intersection
+    
+      })
+      //deferred.resolve({ geometry: polyline, poledata: poleData });
+    //////} catch (error) {
+      //console.error('Error querying poles data:', error);
+     // deferred.reject(error);
+    //}
+   // }
+    //return deferred.promise;
+  };
   render () {
     const frontPage = this.renderFrontLandingPage()
     let jmc
