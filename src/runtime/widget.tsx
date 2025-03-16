@@ -17,7 +17,7 @@ import { getAllLayersFromDataSource, defaultSelectedUnits, getPortalSelfElevatio
 import SketchViewModel from 'esri/widgets/Sketch/SketchViewModel'
 import Graphic from 'esri/Graphic'
 import GraphicsLayer from 'esri/layers/GraphicsLayer'
-import type Point from 'esri/geometry/Point'
+import  Point from 'esri/geometry/Point'
 import Extent from 'esri/geometry/Extent'
 import geometryEngine from 'esri/geometry/geometryEngine'
 import ElevationProfileViewModel from 'esri/widgets/ElevationProfile/ElevationProfileViewModel'
@@ -33,7 +33,7 @@ import { convertSingle } from '../common/unit-conversion'
 import type Geometry from 'esri/geometry/Geometry'
 import promiseUtils from 'esri/core/promiseUtils'
 import { versionManager } from '../version-manager'
-
+import Draw from 'esri/views/draw/Draw'
 const { epIcon } = getRuntimeIcon()
 
 const defaultPointSymbol = {
@@ -109,8 +109,10 @@ export default class Widget extends BaseWidget<AllWidgetProps<IMConfig> & ExtraP
   private bufferGraphics: Graphic
   private resultsAfterIntersectionTimeout = null
   private _abortController: AbortController
-  
-
+  private _drawTool: Draw
+  private poleDrawingLayer:GraphicsLayer
+  private poleactiveDrawingLayer:GraphicsLayer
+  private poledrawAction:any
   static versionManager = versionManager
   static mapExtraStateProps = (state: IMState,
     props: AllWidgetProps<IMConfig>): ExtraProps => {
@@ -136,7 +138,10 @@ export default class Widget extends BaseWidget<AllWidgetProps<IMConfig> & ExtraP
     const activeDsConfig = this.props.config.configInfo[this.props.config.activeDataSource]
     this.selectedUnit = defaultSelectedUnits(activeDsConfig, this.props.portalSelf)
     this.bufferGraphics = null
-  
+    this._drawTool=null
+    //this.poleDrawingLayer=null
+    this.poledrawAction=null
+   // this.poleactiveDrawingLayer=null
     this.state = {
       initialStage: true,
       resultStage: false,
@@ -194,6 +199,18 @@ export default class Widget extends BaseWidget<AllWidgetProps<IMConfig> & ExtraP
       effect: 'bloom(0.8, 1px, 0)'
     })
 
+    //create new graphicsLayer to draw pole lines
+    this.poleDrawingLayer = new GraphicsLayer({
+      listMode: 'hide',
+      effect: 'bloom(0.8, 1px, 0)'
+    })
+    //create new graphicsLayer to draw pole lines
+    this.poleactiveDrawingLayer = new GraphicsLayer({
+      listMode: 'hide',
+      effect: 'bloom(0.8, 1px, 0)'
+    })
+    
+
     //create new graphicsLayer to show next possible selections
     this.nextPossibleSelectionLayer = new GraphicsLayer({
       listMode: 'hide',
@@ -229,7 +246,110 @@ export default class Widget extends BaseWidget<AllWidgetProps<IMConfig> & ExtraP
     }
     return Promise.resolve(ds)
   }
+  addPolelineGraphic = (event:any) => {
+  
+    this.poleDrawingLayer.removeAll();
 
+    const polyline = new Polyline({
+      spatialReference: this.mapView.view.spatialReference,
+      paths: event.vertices,
+    });
+
+    var graphic = new Graphic({
+      geometry: polyline,
+      symbol: {
+        type: "simple-line",
+        color: this.selectedBufferValues.bufferSymbol.outline.color,
+        width: 2,
+        style: "solid" // Red Dotted Line
+      },
+    });
+    const color = new Color(this.state.graphicsHighlightColor ? this.state.graphicsHighlightColor : '#00ffff')
+    const rgbaColor = color.toRgba()
+   var polylineSymbol= {
+    type: "simple-line", // autocasts as SimpleLineSymbol()
+    color: [226, 119, 40],
+    width: 4
+  };
+//create new graphic with the newly selected geometry
+const polylineGraphic = new Graphic({
+  geometry: polyline,
+  symbol: polylineSymbol
+})
+   this.poleDrawingLayer.graphics.add(graphic);
+    if(event.type=="draw-complete"){
+      this.poledrawAction.destroy()
+      //graphic.geometry=this.getnearbyPolespolyline(polyline)
+     this._defaultViewModel.input=polylineGraphic
+     this.setState({
+      loadingIndicator: true,
+      onDrawingComplete: true
+    })
+    }
+      
+  }
+  setnearbyPolespolyline=()=>{
+    if(!this._defaultViewModel)
+      return
+    if(!this._defaultViewModel.input)
+      return
+  let  polyline=this._defaultViewModel.input.geometry
+    const poleData: [number, number, string][] = [];
+    const polyPaths: [number, number][] = [];
+ if(this.state.intersectionResult && this.state.intersectionResult.length>0){
+      let layerfeatures=this.state.intersectionResult[0].intersectionResult
+      if(layerfeatures.length==0)
+        return
+      var features=[];
+        for (let i = 0; i < layerfeatures.length; i++) {
+          features.push(layerfeatures[i].intersectingFeature);
+        }
+        for (const path of polyline.paths[0]) {
+          let closestPole = null;
+          let minDist = this.mapView.view.width / (15 + ((50 - this.selectedBufferValues.bufferDistance) + 25))
+          const pt = new Point({ x: path[0], y: path[1] });
+  
+          for (const feature of features) {
+            const poleGeo = feature.geometry as Point;
+            const dist = Math.hypot(pt.x - poleGeo.x, pt.y - poleGeo.y);
+  
+            if (dist < minDist) {
+              minDist = dist;
+              closestPole = feature;
+            }
+          }
+  
+          if (closestPole) {
+            polyPaths.push([closestPole.geometry.x, closestPole.geometry.y]);
+            poleData.push([closestPole.geometry.x, closestPole.geometry.y, closestPole.attributes.FACILITYID]);
+          } else {
+            polyPaths.push([pt.x, pt.y]);
+            poleData.push([pt.x, pt.y, '']);
+          }
+        }
+        polyline = new Polyline({ paths: [polyPaths], spatialReference: this.mapView.view.spatialReference });
+         const symbol ={
+              type: "simple-line", 
+              style: 'dash',
+              color: new Color([255, 0, 0]),
+              width: 1
+            };
+            //create new graphic with the newly selected geometry
+const polylineGraphic = new Graphic({
+  geometry: polyline,
+  symbol: symbol
+})
+            this.poleactiveDrawingLayer.removeAll();
+            this.poleactiveDrawingLayer.add(polylineGraphic);
+          // this._defaultViewModel.input.geometry=polyline
+             if(!geometryEngine.equals(this._defaultViewModel?.input?.geometry, polyline)){
+              //this._defaultViewModel.input.symbol=symbol
+              this._defaultViewModel.input.geometry=polyline
+             }
+              
+      }
+      //return polyline
+  }
   //create data source by id for only configured selectable and intersecting layers and wait for only those layers to load
   loadConfiguredDataSources = (currentDataSourceId: string): Array<Promise<DataSource>> => {
     const mapDs = DataSourceManager.getInstance().getDataSource(currentDataSourceId)
@@ -290,7 +410,7 @@ export default class Widget extends BaseWidget<AllWidgetProps<IMConfig> & ExtraP
       //Show profile on app load if feature is preselected
       this.displayFeaturesResult(this.state.dsToGetSelectedOnLoad, [selectedFeatureRecord?.[0]?.feature])
       this.setState({
-        dsToGetSelectedOnLoad: ''
+        dsToGetSelectedOnLoad: '' 
       })
     }
   }
@@ -411,7 +531,7 @@ export default class Widget extends BaseWidget<AllWidgetProps<IMConfig> & ExtraP
           }
           this.drawingLayer.set('elevationInfo', elevationInfo)
           this.nextPossibleSelectionLayer.set('elevationInfo', elevationInfo)
-          this.state.jimuMapView.view.map.addMany([this.bufferLayer, this.nextPossibleSelectionLayer, this.drawingLayer, this.intersectionHighlightLayer])
+          this.state.jimuMapView.view.map.addMany([this.poleactiveDrawingLayer,this.poleDrawingLayer,this.bufferLayer, this.nextPossibleSelectionLayer, this.drawingLayer, this.intersectionHighlightLayer])
           this.createApiWidget(jmv)
           this.createEpViewModel(jmv)
           //check the widget state whether open/close in live view
@@ -672,7 +792,10 @@ export default class Widget extends BaseWidget<AllWidgetProps<IMConfig> & ExtraP
         color: this.state.graphicsHighlightColor
       })
     }
-
+    if(!this._drawTool){
+      // Draw tool
+      this._drawTool = new Draw({ view: jmv ? jmv.view : null, });
+    }
     //Create new instance of ElevationProfileViewModel
     //update the exitings instance ONLY when volumetric objects are changed in all other cases create new instance
     //when volumetricObjectsChanged and _defaultViewModel is null still create new instance
@@ -704,7 +827,10 @@ export default class Widget extends BaseWidget<AllWidgetProps<IMConfig> & ExtraP
           })
       }
     }
-
+    const intersectionResult: any = this.state.intersectionResult
+    reactiveUtils?.watch(() => intersectionResult, async () => {
+   console.log("changed")
+    })
     const defaultViewModel: any = this._defaultViewModel
     //use reactiveUtils instead of watchUtils because it was deprecated at 4.24 and the plan is to remove it at 4.27 version
     //if view model having some error in its error state while drawing/selecting to generate the profile
@@ -724,10 +850,10 @@ export default class Widget extends BaseWidget<AllWidgetProps<IMConfig> & ExtraP
           // Abort any pending async operation if the input geometry changes again in the meantime.
           this._abortController?.abort()
           const { signal } = (this._abortController = new AbortController())
-          this.setState({
-            loadingIndicator: true,
-            onDrawingComplete: this._defaultViewModel.state === 'created'
-          })
+          // this.setState({
+          //   loadingIndicator: true,
+          //   onDrawingComplete: this._defaultViewModel.state === 'created'
+          // })
           // Wait for the profile to be finished before proceeding.
           await reactiveUtils.whenOnce(() => defaultViewModel.progress === 1, signal)
           if (signal.aborted) {
@@ -770,7 +896,7 @@ export default class Widget extends BaseWidget<AllWidgetProps<IMConfig> & ExtraP
       return null
     }
   }
-
+  
   onChartDataReady = async (signal) => {
     if (this.state.drawModeActive || this.state.selectModeActive) {
       const intersectionResult = await this.createBufferGraphics(true)
@@ -1211,6 +1337,8 @@ export default class Widget extends BaseWidget<AllWidgetProps<IMConfig> & ExtraP
         this.createEpViewModel(this.mapView, true)
       }
     }
+
+    this.setnearbyPolespolyline()
   }
 
   //for backward comaptibility check for the prev and current config for advance and profile or asset settings
@@ -1468,6 +1596,10 @@ export default class Widget extends BaseWidget<AllWidgetProps<IMConfig> & ExtraP
       this.drawingLayer.removeAll()
       this.bufferLayer.removeAll()
     }
+     //clear the graphics added by drawingpoleline tool
+    //  if (this.poleDrawingLayer) {
+    //   this.poleDrawingLayer.removeAll()
+    // }
     if (newSelectedFeature) {
       this.setState({
         drawModeActive: false,
@@ -2118,7 +2250,15 @@ export default class Widget extends BaseWidget<AllWidgetProps<IMConfig> & ExtraP
         //Activate draw tool
         if (this.state.drawModeActive) {
           if (this._defaultViewModel) {
-            this._defaultViewModel.start({ mode: 'sketch' })
+            if(this._drawTool){
+              this.poledrawAction = this._drawTool.create("polyline");
+              this.poledrawAction.on('vertex-add', this.addPolelineGraphic);
+              this.poledrawAction.on('cursor-update', this.addPolelineGraphic);
+              this.poledrawAction.on('draw-complete', this.addPolelineGraphic);
+            }
+              
+           // this.mapView.focus();
+           // this._defaultViewModel.start({ mode: 'sketch' })
           }
         }
         //Activate select tool
@@ -2134,6 +2274,15 @@ export default class Widget extends BaseWidget<AllWidgetProps<IMConfig> & ExtraP
       this.drawingLayer.removeAll()
       this.drawingLayer.destroy()
     }
+    if (this.poleDrawingLayer) {
+      this.poleDrawingLayer.removeAll()
+      this.poleDrawingLayer.destroy()
+    }
+    if (this.poleactiveDrawingLayer) {
+      this.poleactiveDrawingLayer.removeAll()
+      this.poleactiveDrawingLayer.destroy()
+    }
+    
     if (this.nextPossibleSelectionLayer) {
       this.nextPossibleSelectionLayer.removeAll()
       this.nextPossibleSelectionLayer.destroy()
@@ -2245,6 +2394,12 @@ export default class Widget extends BaseWidget<AllWidgetProps<IMConfig> & ExtraP
     if (this.drawingLayer) {
       this.drawingLayer.removeAll()
     }
+    if (this.poleDrawingLayer) {
+      this.poleDrawingLayer.removeAll()
+    }
+    if (this.poleactiveDrawingLayer) {
+      this.poleactiveDrawingLayer.removeAll()
+    }
     if (this.nextPossibleSelectionLayer) {
       this.nextPossibleSelectionLayer.removeAll()
     }
@@ -2346,6 +2501,7 @@ export default class Widget extends BaseWidget<AllWidgetProps<IMConfig> & ExtraP
               </div>
             </CardBody>
           </Card>
+        {/* {   added below div by krishna for pole checkbox} */}
           <div>
                 <Label
                   centric
