@@ -34,8 +34,9 @@ import type Geometry from 'esri/geometry/Geometry'
 import promiseUtils from 'esri/core/promiseUtils'
 import { versionManager } from '../version-manager'
 import Draw from 'esri/views/draw/Draw'
+import esripinicon  from './assets/esri-pin.svg'
 const { epIcon } = getRuntimeIcon()
-
+import PictureMarkerSymbol from "esri/symbols/PictureMarkerSymbol"
 const defaultPointSymbol = {
   style: 'esriSMSCircle',
   color: [0, 0, 128, 128],
@@ -200,10 +201,7 @@ export default class Widget extends BaseWidget<AllWidgetProps<IMConfig> & ExtraP
     })
 
     //create new graphicsLayer to draw pole lines
-    this.poleDrawingLayer = new GraphicsLayer({
-      listMode: 'hide',
-      effect: 'bloom(0.8, 1px, 0)'
-    })
+    this.poleDrawingLayer = new GraphicsLayer()
     //create new graphicsLayer to draw pole lines
     this.poleactiveDrawingLayer = new GraphicsLayer({
       listMode: 'hide',
@@ -248,7 +246,7 @@ export default class Widget extends BaseWidget<AllWidgetProps<IMConfig> & ExtraP
   }
   addPolelineGraphic = (event:any) => {
   
-    this.poleDrawingLayer.removeAll();
+  this.poleDrawingLayer.removeAll();
 
     const polyline = new Polyline({
       spatialReference: this.mapView.view.spatialReference,
@@ -276,7 +274,21 @@ const polylineGraphic = new Graphic({
   geometry: polyline,
   symbol: polylineSymbol
 })
-   this.poleDrawingLayer.graphics.add(graphic);
+  
+   event.vertices.forEach((vertex) => {
+    let pointGraphic = new Graphic({
+        geometry: { type: "point", x: vertex[0], y: vertex[1],spatialReference: this.mapView.view.spatialReference, },
+        symbol:{
+          type: "picture-marker", // autocasts as new SimpleMarkerSymbol()
+          url:esripinicon,
+          width: "24px",
+          height: "24px"
+        }
+    });
+   // pointGraphic.geometry=this.mapView.view.toMap(pointGraphic.geometry)
+   this.poleDrawingLayer.graphics.add(pointGraphic);
+});
+ this.poleDrawingLayer.graphics.add(graphic);
     if(event.type=="draw-complete"){
       this.poledrawAction.destroy()
       //graphic.geometry=this.getnearbyPolespolyline(polyline)
@@ -342,9 +354,15 @@ const polylineGraphic = new Graphic({
             this.poleactiveDrawingLayer.removeAll();
             this.poleactiveDrawingLayer.add(polylineGraphic);
           // this._defaultViewModel.input.geometry=polyline
+         // this.createBufferGraphicsforPoles(true,polyline)
+       
              if(!geometryEngine.equals(this._defaultViewModel?.input?.geometry, polyline)){
               //this._defaultViewModel.input.symbol=symbol
               this._defaultViewModel.input.geometry=polyline
+             
+             }
+             else{
+              this.createBufferGraphicsforPoles(true,this.poleDrawingLayer.graphics.filter(g=>g.geometry.type!="point"))
              }
               
       }
@@ -990,7 +1008,60 @@ const polylineGraphic = new Graphic({
       }
     })
   }
-
+  createBufferGraphicsforPoles = async (skipSettingResultState?: boolean,polesGeometery?:Geometry): Promise<any[]> => {
+    return new Promise((resolve) => {
+      //Empty prev buffer graphic instance
+      this.bufferGraphics = null
+      if (!this.selectedBufferValues) {
+        resolve([])
+        return
+      }
+      if (polesGeometery) {
+        //if buffer is enabled then create buffer and then get intersecting features
+        //else directly get the intersecting features to the drawn/selected geometry
+        if (this.selectedBufferValues.enabled && this.selectedBufferValues.bufferDistance > 0) {
+          let inputGeometry = polesGeometery 
+          //In some cases with add to selection the complete geometry will not be simplified
+          //to the get the correct buffer the geometry should be simplified
+          if (geometryEngine && !geometryEngine.isSimple(inputGeometry)) {
+            inputGeometry = geometryEngine.simplify(inputGeometry)
+          }
+          geometryUtils.createBuffer(inputGeometry, [this.selectedBufferValues.bufferDistance], this.selectedBufferValues.bufferUnits).then((bufferGeometry) => {
+            //as we will always deal with only one geometry get first geometry only
+            const firstBufferGeom = Array.isArray(bufferGeometry) ? bufferGeometry[0] : bufferGeometry
+            const bufferGraphics = new Graphic({
+              geometry: firstBufferGeom,
+              symbol: jsonUtils?.fromJSON(this.selectedBufferValues.bufferSymbol)
+            })
+            this.bufferGraphics = bufferGraphics
+            if (bufferGraphics && this.bufferGraphics) {
+              this.bufferLayer?.removeAll()
+              this.bufferLayer?.add(bufferGraphics)
+            }
+            //check for intersecting assets once buffer is drawn
+            //when creating buffer after selection or drawing, we are setting the intersectionResult in state along with chart data,
+            //and when updating buffer while changing value, unit, intersection layers the state needs to be updated after the intersection
+            // this.checkForIntersectingLayer(skipSettingResultState).then((intersectionResult) => {
+            //   resolve(intersectionResult)
+            // })
+          })
+        } else {
+          this.bufferLayer?.removeAll()
+          // this.checkForIntersectingLayer(skipSettingResultState).then((intersectionResult) => {
+          //   resolve(intersectionResult)
+          // })
+        }
+      } else {
+        this.bufferLayer?.removeAll()
+        // if (!skipSettingResultState) {
+        //   this.setState({
+        //     intersectionResult: []
+        //   })
+        // }
+        // resolve([])
+      }
+    })
+  }
   //On buffer values changes at runtime
   onBufferChange = (bufferValues: AssetBufferIntersection) => {
     this.selectedBufferValues = bufferValues
@@ -1337,8 +1408,8 @@ const polylineGraphic = new Graphic({
         this.createEpViewModel(this.mapView, true)
       }
     }
-
-    this.setnearbyPolespolyline()
+    if(this.state.polecheckboxChanged)
+     this.setnearbyPolespolyline()
   }
 
   //for backward comaptibility check for the prev and current config for advance and profile or asset settings
@@ -2377,6 +2448,7 @@ const polylineGraphic = new Graphic({
   }
 
   clearAll = (skipClearingSelectedFeatures?: boolean) => {
+    this.poledrawAction.destroy()
     if (this._defaultViewModel) {
       this._defaultViewModel.clear()
     }
@@ -2514,8 +2586,7 @@ const polylineGraphic = new Graphic({
                       polecheckboxChanged: !prevState.polecheckboxChanged, // Toggle the boolean value
                     })); }}
                   />
-                  Pole Intersect
-                </Label>
+                  Snap to Pole                </Label>
               </div>
           <Card tabIndex={0} aria-label={this.nls('drawProfileDesc')} button data-testid='drawButton'
             className={classNames('front-cards front-section mt-4 mb-4 shadow', this.state.currentDatasource === 'default' || this.state.lineLayersNotFound ? 'h-100 ' : '')}
@@ -2548,6 +2619,7 @@ const polylineGraphic = new Graphic({
   }
 
   resetToDefault = () => {
+    
     //clears the output data source statistics
     this.buildStatsValuesAsOutput(null, this.props.outputDataSources?.[0], this.state.selectedElevationUnit, this.state.selectedLinearUnit, false)
     if (this.state.drawModeActive || this.state.selectModeActive) {
@@ -2649,6 +2721,7 @@ const polylineGraphic = new Graphic({
               profileErrorMsg={this.state.profileErrorMsg}
               chartDataUpdateTime={this.state.chartDataUpdateTime}
               currentPageId={this.props.currentPageId}
+              polesActivated={this.state.polecheckboxChanged}
             />
           }
         </div >

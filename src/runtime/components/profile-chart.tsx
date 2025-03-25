@@ -72,6 +72,7 @@ interface MinMax {
 interface Props {
   intl: IntlShape
   isExportEnable: boolean
+  isExportEnableforPole:boolean
   parentWidgetId: string
   commonGeneralSettings: GeneralSetting
   activeDs: string
@@ -338,6 +339,12 @@ export default class Chart extends React.PureComponent<Props, IState> {
         this.performExportOperation()
       }
     }
+    if (prevProps.isExportEnableforPole !== this.props.isExportEnableforPole) {
+      if (this.props.isExportEnableforPole) {
+       // this.props.isExportEnableforPole(false)
+        this.exportDataForIntersectingLayers()
+      }
+    }
   }
 
   resetExportingInfo = () => {
@@ -463,7 +470,7 @@ export default class Chart extends React.PureComponent<Props, IState> {
       //remove the adaptor
       exportDataForSelectedLayer.events.removeType('dataprocessed')
       //Export data for intersecting layers
-      this.exportDataForIntersectingLayers()
+     // this.exportDataForIntersectingLayers()
     } catch (e) {
       console.log(e)
     }

@@ -59,6 +59,7 @@ interface Props {
   intersectionResult: LayerIntersectionInfo[]
   chartDataUpdateTime: number
   currentPageId: string
+  polesActivated:boolean
 }
 
 interface IState {
@@ -102,6 +103,7 @@ interface IState {
   isCustomizeInterval: boolean
   allowExport: boolean
   exportData: boolean
+  exportpolesData: boolean
   showViewLineGraph: boolean
   volumetricObjLineColor: string
   volumetricObjLabel: string
@@ -165,12 +167,14 @@ export default class ResultPane extends React.PureComponent<Props, IState> {
       isCustomizeInterval: false,
       allowExport: this.props.commonDsGeneralSettings?.allowExport,
       exportData: false,
+      exportpolesData:false,
       showViewLineGraph: this.props.activeDatasourceConfig ? this.props.activeDatasourceConfig.profileChartSettings.showVolumetricObjLineInGraph : this.props.defaultConfig.profileChartSettings.showVolumetricObjLineInGraph,
       volumetricObjLineColor: this.props.activeDatasourceConfig ? this.props.activeDatasourceConfig.profileChartSettings.volumetricObjLineColor : this.props.defaultConfig.profileChartSettings.volumetricObjLineColor,
       volumetricObjLabel: this.props.activeDatasourceConfig ? this.props.activeDatasourceConfig.profileChartSettings.volumetricObjLabel : this.props.defaultConfig.profileChartSettings.volumetricObjLabel,
       distanceInterval: 1.0,
       showInValidIntervalErrorMsg: false,
-      getIntervalsError: ''
+      getIntervalsError: '',
+     // polesActivated:true
     }
 
     this.selectableLayers = []
@@ -679,6 +683,10 @@ export default class ResultPane extends React.PureComponent<Props, IState> {
     this.setState({
       exportData: isExport
     })
+    this.setState({
+      exportpolesData: isExport
+    })
+    
   }
 
   customizeIntervalChange = (evt) => {
@@ -698,6 +706,10 @@ export default class ResultPane extends React.PureComponent<Props, IState> {
   onExportButtonClick = () => {
     this.state.showInValidIntervalErrorMsg ? this.setState({ exportData: false }) : this.setState({ exportData: true })
   }
+  onExportPolesButtonClick = () => {
+    this.state.showInValidIntervalErrorMsg ? this.setState({ exportpolesData: false }) : this.setState({ exportpolesData: true })
+  }
+
 
   onExportCancelButtonClick = () => {
     this.setState({
@@ -799,7 +811,7 @@ export default class ResultPane extends React.PureComponent<Props, IState> {
           this.setState({ isExport: !this.state.isExport })
         }}
       >
-        <div style={{ width: 250 }} className={'p-2'}>
+        <div style={{ width: 300 }} className={'p-2'}>
           <Label aria-label={this.nls('chartExport')} className={'exportLabel text-break'}>
             {this.nls('chartExport')}
           </Label>
@@ -845,6 +857,20 @@ export default class ResultPane extends React.PureComponent<Props, IState> {
                 className={'actionButton text-break'} style={{ float: !isRTL ? 'right' : 'left' }} size={'default'} type='primary' onClick={this.onExportButtonClick}>
                 {this.nls('exportLabel')}
               </Button>
+              {this.props.polesActivated && (
+  <Button
+    role="button"
+    aria-label={this.nls('exportLabel')}
+    title={this.nls('exportLabel')}
+    className="actionButton text-break"
+    style={{ float: !isRTL ? 'right' : 'left' }}
+    size="default"
+    type="primary"
+    onClick={this.onExportPolesButtonClick}
+  >
+    {this.nls('exportLabel') + " Poles"}
+  </Button>
+)}
               <Button role={'button'} aria-label={this.nls('cancel')} title={this.nls('cancel')}
                 className={'actionButton text-break'} style={{ float: !isRTL ? 'left' : 'right' }} size={'default'} type='secondary' onClick={this.onExportCancelButtonClick}>
                 {this.nls('cancel')}
@@ -1217,6 +1243,7 @@ export default class ResultPane extends React.PureComponent<Props, IState> {
               ref={'chartObj'}
               intl={this.props.intl}
               isExportEnable={this.state.exportData}
+              isExportEnableforPole={this.state.exportpolesData}
               parentWidgetId={this.props.widgetId}
               commonGeneralSettings={this.props.commonDsGeneralSettings}
               activeDs={this.props.activeDataSource}
