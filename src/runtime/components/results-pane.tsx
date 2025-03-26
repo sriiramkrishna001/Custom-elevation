@@ -60,6 +60,7 @@ interface Props {
   chartDataUpdateTime: number
   currentPageId: string
   polesActivated:boolean
+  intersectedPolepoints:[]
 }
 
 interface IState {
@@ -1271,6 +1272,7 @@ export default class ResultPane extends React.PureComponent<Props, IState> {
               setExportButton={this.setExportButtonState}
               isCustomIntervalEnabled={this.state.isCustomizeInterval}
               customDistanceInterval={this.state.distanceInterval}
+              intersectedPolepoints={this.props.intersectedPolepoints}
             />
           }
         </div>

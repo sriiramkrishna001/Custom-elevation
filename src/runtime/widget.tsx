@@ -90,6 +90,7 @@ interface IState {
   layersLoaded: boolean
   dsToGetSelectedOnLoad: string
   polecheckboxChanged:boolean
+  intersectingPolepoints:[number, number][]
 }
 
 export default class Widget extends BaseWidget<AllWidgetProps<IMConfig> & ExtraProps, IState> {
@@ -277,7 +278,7 @@ const polylineGraphic = new Graphic({
   
    event.vertices.forEach((vertex) => {
     let pointGraphic = new Graphic({
-        geometry: { type: "point", x: vertex[0], y: vertex[1],spatialReference: this.mapView.view.spatialReference, },
+        geometry: { type: "point", x: vertex[0], y: vertex[1],spatialReference: this.mapView.view.spatialReference},
         symbol:{
           type: "picture-marker", // autocasts as new SimpleMarkerSymbol()
           url:esripinicon,
@@ -318,7 +319,7 @@ const polylineGraphic = new Graphic({
         }
         for (const path of polyline.paths[0]) {
           let closestPole = null;
-          let minDist = this.mapView.view.width / (15 + ((50 - this.selectedBufferValues.bufferDistance) + 25))
+          let minDist = this.mapView.view.width / (15 + ((50 - this.selectedBufferValues.bufferDistance) + 30))
           const pt = new Point({ x: path[0], y: path[1] });
   
           for (const feature of features) {
@@ -333,10 +334,10 @@ const polylineGraphic = new Graphic({
   
           if (closestPole) {
             polyPaths.push([closestPole.geometry.x, closestPole.geometry.y]);
-            poleData.push([closestPole.geometry.x, closestPole.geometry.y, closestPole.attributes.FACILITYID]);
+           // poleData.push([closestPole.geometry.x, closestPole.geometry.y, closestPole.attributes.FACILITYID]);
           } else {
             polyPaths.push([pt.x, pt.y]);
-            poleData.push([pt.x, pt.y, '']);
+            //poleData.push([pt.x, pt.y, '']);
           }
         }
         polyline = new Polyline({ paths: [polyPaths], spatialReference: this.mapView.view.spatialReference });
@@ -1020,7 +1021,7 @@ const polylineGraphic = new Graphic({
         //if buffer is enabled then create buffer and then get intersecting features
         //else directly get the intersecting features to the drawn/selected geometry
         if (this.selectedBufferValues.enabled && this.selectedBufferValues.bufferDistance > 0) {
-          let inputGeometry = polesGeometery 
+          let inputGeometry = polesGeometery.items[0].geometry 
           //In some cases with add to selection the complete geometry will not be simplified
           //to the get the correct buffer the geometry should be simplified
           if (geometryEngine && !geometryEngine.isSimple(inputGeometry)) {

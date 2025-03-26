@@ -100,6 +100,7 @@ interface Props {
   isCustomIntervalEnabled: boolean
   customDistanceInterval: number
   chartDataUpdateTime: number
+  intersectedPolepoints:[]
 }
 
 interface IState {
@@ -378,13 +379,13 @@ export default class Chart extends React.PureComponent<Props, IState> {
           seriesInfo.forEach((sInfo) => {
             //create data for each intersection
             const eachEntry = {
+              intersectingLayerDisplayField: this.validateIntersectingpolepoints(chartInfo)?'':sInfo.displayField,
+              layerName: this.intersectingLayersExportingInfo[layerId].layerName,
               xCoordinate: chartInfo.xCoordinate,
               yCoordinate: chartInfo.yCoordinate,
               x: chartInfo.x,
               intersectingLayerY: sInfo.value,
-              intersectingLayerY2: undefined,
-              intersectingLayerDisplayField: sInfo.displayField,
-              layerName: this.intersectingLayersExportingInfo[layerId].layerName
+              intersectingLayerY2: undefined
             }
             //if two field point series then export both the elevation values in csv
             if (sInfo.hasOwnProperty('y2')) {
@@ -424,7 +425,18 @@ export default class Chart extends React.PureComponent<Props, IState> {
       exportDataForIntersectingLayers.events.removeType('dataprocessed')
     })
   }
+  validateIntersectingpolepoints=(chartInfo:any):boolean=>{
+    let isExist=false;
+      let polepoints= this.props.intersectedPolepoints
+      var itemdata = polepoints.find((item: any) => 
+        Math.round(item[0]) === Math.round(chartInfo.xCoordinate) &&
+        Math.round(item[1]) === Math.round(chartInfo.yCoordinate)
+    );
+      if(itemdata)
+        isExist=true;
+    return isExist
 
+  }
   performExportOperation = () => {
     try {
       const exportDataForSelectedLayer = Exporting.new(this.accessChartParams.chart.root, {
@@ -2426,12 +2438,12 @@ export default class Chart extends React.PureComponent<Props, IState> {
         })
       })
       this.intersectingLayersExportingInfo[configuredAssetSetting.layerId] = {
+        intersectingLayerDisplayField: this.getDisplayFieldAlias(configuredAssetSetting.layerId, configuredAssetSetting.displayField),
         xCoordinate: 'X',
         yCoordinate: 'Y',
         x: this.nls('distanceLabel') + ' (' + this.props.selectedLinearUnit + ')',
         intersectingLayerY: this.nls('elevationLabel') + ' (' + this.props.selectedElevationUnit + ')',
-        layerName: seriesName,
-        intersectingLayerDisplayField: this.getDisplayFieldAlias(configuredAssetSetting.layerId, configuredAssetSetting.displayField)
+        layerName: seriesName
       }
       allSeriesPerLayer[0]?.on('visible', function (visible) {
         allSeriesPerLayer.forEach((eachFeatureSeries) => {
@@ -2534,22 +2546,22 @@ export default class Chart extends React.PureComponent<Props, IState> {
       //create exporting info for the layer
       if (configuredAssetSetting.elevationSettings.type === 'two') {
         this.intersectingLayersExportingInfo[configuredAssetSetting.layerId] = {
+          intersectingLayerDisplayField: configuredDisplayField,
           xCoordinate: 'X',
           yCoordinate: 'Y',
           x: this.nls('distanceLabel') + ' (' + this.props.selectedLinearUnit + ')',
           intersectingLayerY: this.nls('oneFieldLabelForExport') + ' ' + this.nls('elevationLabel') + ' (' + this.props.selectedElevationUnit + ')',
           intersectingLayerY2: this.nls('twoFieldLabelForExport') + ' ' + this.nls('elevationLabel') + ' (' + this.props.selectedElevationUnit + ')',
-          layerName: pointSeriesName,
-          intersectingLayerDisplayField: configuredDisplayField
+          layerName: pointSeriesName
         }
       } else {
         this.intersectingLayersExportingInfo[configuredAssetSetting.layerId] = {
+          intersectingLayerDisplayField: configuredDisplayField,
           xCoordinate: 'X',
           yCoordinate: 'Y',
           x: this.nls('distanceLabel') + ' (' + this.props.selectedLinearUnit + ')',
           intersectingLayerY: this.nls('elevationLabel') + ' (' + this.props.selectedElevationUnit + ')',
-          layerName: pointSeriesName,
-          intersectingLayerDisplayField: configuredDisplayField
+          layerName: pointSeriesName
         }
       }
     }
