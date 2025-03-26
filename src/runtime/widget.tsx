@@ -35,6 +35,8 @@ import promiseUtils from 'esri/core/promiseUtils'
 import { versionManager } from '../version-manager'
 import Draw from 'esri/views/draw/Draw'
 import esripinicon  from './assets/esri-pin.svg'
+import WebStyleSymbol from "esri/symbols/WebStyleSymbol"
+
 const { epIcon } = getRuntimeIcon()
 import PictureMarkerSymbol from "esri/symbols/PictureMarkerSymbol"
 const defaultPointSymbol = {
@@ -115,6 +117,7 @@ export default class Widget extends BaseWidget<AllWidgetProps<IMConfig> & ExtraP
   private poleDrawingLayer:GraphicsLayer
   private poleactiveDrawingLayer:GraphicsLayer
   private poledrawAction:any
+  private bufferTol:any
   static versionManager = versionManager
   static mapExtraStateProps = (state: IMState,
     props: AllWidgetProps<IMConfig>): ExtraProps => {
@@ -124,7 +127,6 @@ export default class Widget extends BaseWidget<AllWidgetProps<IMConfig> & ExtraP
       currentPageId: state.appRuntimeInfo?.currentPageId
     }
   }
-
   constructor (props) {
     super(props)
     this.defaultConfig = this.createDefaultConfigForDataSource()
@@ -270,6 +272,7 @@ export default class Widget extends BaseWidget<AllWidgetProps<IMConfig> & ExtraP
     color: [226, 119, 40],
     width: 4
   };
+  WebStyleSymbol
 //create new graphic with the newly selected geometry
 const polylineGraphic = new Graphic({
   geometry: polyline,
@@ -279,13 +282,12 @@ const polylineGraphic = new Graphic({
    event.vertices.forEach((vertex) => {
     let pointGraphic = new Graphic({
         geometry: { type: "point", x: vertex[0], y: vertex[1],spatialReference: this.mapView.view.spatialReference},
-        symbol:{
-          type: "picture-marker", // autocasts as new SimpleMarkerSymbol()
-          url:esripinicon,
-          width: "24px",
-          height: "24px"
-        }
+        symbol:new WebStyleSymbol({
+          name: "esri-pin-2",
+          styleName: "Esri2DPointSymbolsStyle"
+        })
     });
+    
    // pointGraphic.geometry=this.mapView.view.toMap(pointGraphic.geometry)
    this.poleDrawingLayer.graphics.add(pointGraphic);
 });
@@ -319,7 +321,7 @@ const polylineGraphic = new Graphic({
         }
         for (const path of polyline.paths[0]) {
           let closestPole = null;
-          let minDist = this.mapView.view.width / (15 + ((50 - this.selectedBufferValues.bufferDistance) + 30))
+          let minDist = this.bufferCreate()
           const pt = new Point({ x: path[0], y: path[1] });
   
           for (const feature of features) {
@@ -344,7 +346,7 @@ const polylineGraphic = new Graphic({
          const symbol ={
               type: "simple-line", 
               style: 'dash',
-              color: new Color([255, 0, 0]),
+              color: new Color("#0000FF"),
               width: 1
             };
             //create new graphic with the newly selected geometry
@@ -502,6 +504,7 @@ const polylineGraphic = new Graphic({
       this.setState({
         jimuMapView: jmv
       }, () => {
+        jmv.view.watch("extent", this.handleExtentChange);
         //If no configuration found for selected data source
         //create and use the default configuration
         //this will allow user to use the widget with basic draw tool
@@ -564,7 +567,13 @@ const polylineGraphic = new Graphic({
       })
     }
   }
-
+   handleExtentChange = (event: __esri.ViewExtentChangeEvent) => {
+    ////this.bufferCreate(event.width)
+  };
+   bufferCreate = ():number => {
+    return  this.mapView.view.extent.width / (15 + (50 - this.selectedBufferValues.bufferDistance) + 25);
+    //this.bufferTol=calculatedBufferTol
+  };
   loadSelectDrawToolOnLoad = (activeCurrentDs) => {
     //on widget load activate draw/select tool if it is enabled in config
     if (activeCurrentDs === 'default') {
@@ -973,7 +982,7 @@ const polylineGraphic = new Graphic({
           if (geometryEngine && !geometryEngine.isSimple(inputGeometry)) {
             inputGeometry = geometryEngine.simplify(inputGeometry)
           }
-          geometryUtils.createBuffer(inputGeometry, [this.selectedBufferValues.bufferDistance], this.selectedBufferValues.bufferUnits).then((bufferGeometry) => {
+          geometryUtils.createBuffer(inputGeometry, [this.bufferCreate()], this.selectedBufferValues.bufferUnits).then((bufferGeometry) => {
             //as we will always deal with only one geometry get first geometry only
             const firstBufferGeom = Array.isArray(bufferGeometry) ? bufferGeometry[0] : bufferGeometry
             const bufferGraphics = new Graphic({
@@ -1027,7 +1036,7 @@ const polylineGraphic = new Graphic({
           if (geometryEngine && !geometryEngine.isSimple(inputGeometry)) {
             inputGeometry = geometryEngine.simplify(inputGeometry)
           }
-          geometryUtils.createBuffer(inputGeometry, [this.selectedBufferValues.bufferDistance], this.selectedBufferValues.bufferUnits).then((bufferGeometry) => {
+          geometryUtils.createBuffer(inputGeometry, [this.bufferCreate()], this.selectedBufferValues.bufferUnits).then((bufferGeometry) => {
             //as we will always deal with only one geometry get first geometry only
             const firstBufferGeom = Array.isArray(bufferGeometry) ? bufferGeometry[0] : bufferGeometry
             const bufferGraphics = new Graphic({
